@@ -37,7 +37,12 @@ object UntimedModule {
   def apply[M <: UntimedModule](m: => M): M = {
     // when elaborating, this acts like chisel3.Module(...)
     if(elaborating.get()) {
-      val sub = Module(m)
+      val sub = Module {
+        val em = m
+        // generate the circuit for each method
+        em.methods.foreach(_.generate())
+        em
+      }
       annotate(new ChiselAnnotation { override def toFirrtl = SubmoduleAnnotation(sub.toTarget, sub) })
       sub
     } else { // but it can also be used to elaborate the toplevel
