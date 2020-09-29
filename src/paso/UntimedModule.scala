@@ -18,7 +18,12 @@ class UntimedModule extends MultiIOModule with MethodParent {
   override def isElaborated: Boolean =_isElaborated
   private var _isElaborated = false
   private val _methods = mutable.ArrayBuffer[Method]()
+  private var _firrtl: Option[firrtl.CircuitState] = None
   private val methodNames = mutable.HashSet[String]()
+  def getFirrtl: firrtl.CircuitState = {
+    assert(_isElaborated, "You need to elaborate the module using UntimedModule(new ...)!")
+    _firrtl.get
+  }
   def methods: Seq[Method] = _methods
   // TODO: automagically infer names like Chisel does for its native constructs
   def fun(name: String) = {
@@ -42,16 +47,17 @@ object UntimedModule {
   }
   def elaborate[M <: UntimedModule](m: => M): M = {
     elaborating.set(true)
-    var opt: Option[M] = None
     val gen = () => {
-      opt = Some(m)
+      val em = m
       // generate the circuit for each method
-      opt.get.methods.foreach(_.generate())
-      opt.get
+      em.methods.foreach(_.generate())
+      em
     }
-    val fir = ChiselCompiler.elaborate(gen)
-    val mod = opt.get
+    val (fir, mod) = ChiselCompiler.elaborate(gen)
+    val lowFir = FirrtlCompiler.toLowFirrtl(fir)
+
     mod._isElaborated = true
+    mod._firrtl = Some(lowFir)
     elaborating.set(false)
     mod
   }

@@ -31,6 +31,13 @@ class UntimedModuleSpec extends FlatSpec {
     assert(m.methods.size == 1)
     val inc = m.methods.head
     assert(inc.name == "inc")
+
+    // we should be able to access the low firrtl
+    val f = m.getFirrtl
+    assert(f.circuit.main == "UntimedInc")
+    // as a crude check to see if the circuit is actually in LowForm, make sure there are no whens
+    val src = f.circuit.serialize
+    assert(!src.contains("when "))
   }
 
   "an UntimedModule with state" should "be elaborated with UntimedModule(new ...)" in {
