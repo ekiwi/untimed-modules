@@ -61,7 +61,7 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new OMethodCallBundle(outputType)).suggestName(name)
+    val call = IO(new OMethodCallBundle(outputType)).suggestName(name + "_call")
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.ret
   }
@@ -77,7 +77,7 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name)
+    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name + "_call")
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.arg.toTarget), parent.toTarget, name, ii, true) })
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.arg := in
