@@ -7,13 +7,13 @@ package paso.untimed
 
 import chisel3._
 import chisel3.experimental.{ChiselAnnotation, IO, annotate}
-import firrtl.annotations.{Annotation, ReferenceTarget, SingleTargetAnnotation}
+import firrtl.annotations.{Annotation, ModuleTarget, MultiTargetAnnotation, ReferenceTarget, SingleTargetAnnotation, Target}
 
 import scala.collection.mutable
 
 private[paso] trait MethodParent {
   private[paso] def addMethod(m: Method): Unit
-  private[paso] def getName: String
+  private[paso] def toTarget: ModuleTarget
   private[paso] def isElaborated: Boolean
 }
 
@@ -59,11 +59,10 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
 case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, impl: O => Unit, parent: MethodParent) extends Method {
   def apply(): O = {
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
-    val fullName = parent.getName + "." + name
-    val ii = MethodCall.getCallCount(fullName)
+    val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new OMethodCallBundle(outputType)).suggestName(fullName + "_" + ii)
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.ret.toTarget, fullName, ii, false) })
+    val call = IO(new OMethodCallBundle(outputType)).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.ret
   }
   override def generateBody(enabled: Bool): Unit = {
@@ -76,12 +75,11 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
 case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, inputType: I, outputType: O, impl: (I,O) => Unit, parent: MethodParent) extends Method {
   def apply(in: I): O = {
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
-    val fullName = parent.getName + "." + name
-    val ii = MethodCall.getCallCount(fullName)
+    val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(fullName + "_" + ii)
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.arg.toTarget, fullName, ii, true) })
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.ret.toTarget, fullName, ii, false) })
+    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.arg.toTarget), parent.toTarget, name, ii, true) })
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.arg := in
     call.ret
   }
@@ -119,6 +117,12 @@ object MethodCall {
   }
 }
 
-case class MethodCallAnnotation(target: ReferenceTarget, name: String, ii: Int, isArg: Boolean) extends SingleTargetAnnotation[ReferenceTarget] {
-  def duplicate(n: ReferenceTarget) = this.copy(n)
+case class MethodCallAnnotation(signals: Seq[ReferenceTarget], parent: ModuleTarget, name: String, ii: Int, isArg: Boolean) extends MultiTargetAnnotation {
+  override val targets = List(signals, List(parent))
+
+  override def duplicate(n: Seq[Seq[Target]]) = {
+    assert(n.length == 2, "Need signal + parent")
+    assert(n(1).length == 1, "Method parent should always stay a single ModuleTarget!")
+    copy(signals = n.head.map(_.asInstanceOf[ReferenceTarget]), parent = n(1).head.asInstanceOf[ModuleTarget])
+  }
 }

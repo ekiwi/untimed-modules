@@ -14,7 +14,6 @@ import scala.collection.mutable
 
 class UntimedModule extends MultiIOModule with MethodParent {
   override private[paso] def addMethod(m: Method): Unit = _methods.append(m)
-  override def getName: String = this.pathName
   override def isElaborated: Boolean =_isElaborated
   private var _isElaborated = false
   private val _methods = mutable.ArrayBuffer[Method]()

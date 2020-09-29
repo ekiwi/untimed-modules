@@ -36,7 +36,7 @@ class UntimedModuleSpec extends FlatSpec {
   "a simple UntimedModule" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new UntimedInc)
     assert(m.isElaborated)
-    assert(m.getName == "UntimedInc")
+    assert(m.name == "UntimedInc")
     assert(m.methods.size == 1)
     val inc = m.methods.head
     assert(inc.name == "inc")
@@ -47,12 +47,14 @@ class UntimedModuleSpec extends FlatSpec {
     // as a crude check to see if the circuit is actually in LowForm, make sure there are no whens
     val src = f.circuit.serialize
     assert(!src.contains("when "))
+
+    println(src)
   }
 
   "an UntimedModule with state" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new Counter4Bit)
     assert(m.isElaborated)
-    assert(m.getName == "Counter4Bit")
+    assert(m.name == "Counter4Bit")
     assert(m.methods.size == 1)
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
@@ -62,7 +64,7 @@ class UntimedModuleSpec extends FlatSpec {
   "an UntimedModule with a sub module" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new Counter4BitWithSubModule)
     assert(m.isElaborated)
-    assert(m.getName == "Counter4BitWithSubModule")
+    assert(m.name == "Counter4BitWithSubModule")
     assert(m.methods.size == 1)
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
