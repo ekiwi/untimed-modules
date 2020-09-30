@@ -20,21 +20,7 @@ private[paso] trait MethodParent {
 trait Method {
   def name: String
   private[paso ]def guard: () => Bool
-  //def getParentName: String
-  private[paso] def generate(): Unit = {
-    assert(name.nonEmpty)
-    val guard_out = IO(Output(Bool())).suggestName(name + "_" + "guard")
-    guard_out := guard()
-    val enabled_in = IO(Input(Bool())).suggestName(name + "_" + "enabled")
-    generateBody(enabled_in)
-  }
-  private[paso] def makeInput[T <: Data](t: T): T = {
-    IO(Input(t)).suggestName(name + "_inputs")
-  }
-  private[paso] def makeOutput[T <: Data](t: T): T = {
-    IO(Output(t)).suggestName(name + "_outputs")
-  }
-  protected def generateBody(enabled: Bool): Unit
+  private[paso] def generate(): Unit
 }
 
 case class NMethod(name: String, guard: () => Bool, impl: () => Unit, parent: MethodParent) extends Method {
@@ -42,7 +28,11 @@ case class NMethod(name: String, guard: () => Bool, impl: () => Unit, parent: Me
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     throw new NotImplementedError("Calling methods with side effects is currently not supported!")
   }
-  override protected def generateBody(enabled: Bool): Unit = when(enabled) { impl() }
+  override private[paso] def generate(): Unit = {
+    val io = IO(new MethodIOBundle(UInt(0.W), UInt(0.W))).suggestName(name)
+    io.guard := guard()
+    when(io.enabled) { impl() }
+  }
 }
 
 case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, impl: I => Unit, parent: MethodParent) extends Method {
@@ -50,9 +40,10 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     throw new NotImplementedError("Calling methods with side effects is currently not supported!")
   }
-  override def generateBody(enabled: Bool): Unit = {
-    val in = makeInput(inputType)
-    when(enabled) { impl(in) }
+  override private[paso] def generate(): Unit = {
+    val io = IO(new MethodIOBundle(inputType, UInt(0.W))).suggestName(name)
+    io.guard := guard()
+    when(io.enabled) { impl(io.arg) }
   }
 }
 
@@ -61,14 +52,15 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new OMethodCallBundle(outputType)).suggestName(name + "_call")
+    val call = IO(new OMethodCallBundle(outputType)).suggestName(name + "_call_" + ii)
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.ret
   }
-  override def generateBody(enabled: Bool): Unit = {
-    val out = makeOutput(outputType)
-    out := DontCare
-    when(enabled) { impl(out) }
+  override private[paso] def generate(): Unit = {
+    val io = IO(new MethodIOBundle(UInt(0.W), outputType)).suggestName(name)
+    io.guard := guard()
+    io.ret := DontCare
+    when(io.enabled) { impl(io.ret) }
   }
 }
 
@@ -77,17 +69,17 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
     require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name + "_call")
+    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name + "_call_" + ii)
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.arg.toTarget), parent.toTarget, name, ii, true) })
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.arg := in
     call.ret
   }
-  override def generateBody(enabled: Bool): Unit = {
-    val in = makeInput(inputType)
-    val out = makeOutput(outputType)
-    out := DontCare
-    when(enabled) { impl(in, out) }
+  override private[paso] def generate(): Unit = {
+    val io = IO(new MethodIOBundle(inputType, outputType)).suggestName(name)
+    io.guard := guard()
+    io.ret := DontCare
+    when(io.enabled) { impl(io.arg, io.ret) }
   }
 }
 
@@ -103,6 +95,15 @@ class IOMethodCallBundle[I <: Data, O <: Data](inputType: I, outputType: O) exte
   val ret = Input(outputType)
   override def cloneType: this.type = {
     new IOMethodCallBundle(inputType, outputType).asInstanceOf[this.type]
+  }
+}
+class MethodIOBundle[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
+  val enabled = Input(Bool())
+  val guard = Output(Bool())
+  val arg = Input(inputType)
+  val ret = Output(outputType)
+  override def cloneType: this.type = {
+    new MethodIOBundle(inputType, outputType).asInstanceOf[this.type]
   }
 }
 

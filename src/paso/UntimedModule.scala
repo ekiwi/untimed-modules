@@ -58,6 +58,9 @@ object UntimedModule {
       em
     }
     val (fir, mod) = ChiselCompiler.elaborate(gen)
+
+    println(fir.circuit.serialize)
+
     val lowFir = FirrtlCompiler.toLowFirrtl(fir)
 
     mod._isElaborated = true
