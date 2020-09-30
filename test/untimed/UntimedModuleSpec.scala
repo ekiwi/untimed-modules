@@ -27,8 +27,9 @@ class Counter4BitWithSubModule extends UntimedModule {
   val value = RegInit(0.U(4.W))
   val ii = UntimedModule(new UntimedInc)
   val inc = fun("inc").out(UInt(4.W)) { out =>
-    value := ii.inc(value)
-    out := ii.inc(value)
+    val newValue = ii.inc(value)
+    value := newValue
+    out := newValue
   }
 }
 

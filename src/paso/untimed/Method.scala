@@ -29,7 +29,7 @@ case class NMethod(name: String, guard: () => Bool, impl: () => Unit, parent: Me
     throw new NotImplementedError("Calling methods with side effects is currently not supported!")
   }
   override private[paso] def generate(): Unit = {
-    val io = IO(new MethodIOBundle(UInt(0.W), UInt(0.W))).suggestName(name)
+    val io = IO(new MethodIO(UInt(0.W), UInt(0.W))).suggestName(name)
     io.guard := guard()
     when(io.enabled) { impl() }
   }
@@ -41,7 +41,7 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
     throw new NotImplementedError("Calling methods with side effects is currently not supported!")
   }
   override private[paso] def generate(): Unit = {
-    val io = IO(new MethodIOBundle(inputType, UInt(0.W))).suggestName(name)
+    val io = IO(new MethodIO(inputType, UInt(0.W))).suggestName(name)
     io.guard := guard()
     when(io.enabled) { impl(io.arg) }
   }
@@ -49,15 +49,16 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
 
 case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, impl: O => Unit, parent: MethodParent) extends Method {
   def apply(): O = {
-    require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
+    require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedModules")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new OMethodCallBundle(outputType)).suggestName(name + "_call_" + ii)
+    val call = IO(new MethodCallIO(UInt(0.W), outputType)).suggestName(name + "_call_" + ii)
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
+    call.enabled := true.B
     call.ret
   }
   override private[paso] def generate(): Unit = {
-    val io = IO(new MethodIOBundle(UInt(0.W), outputType)).suggestName(name)
+    val io = IO(new MethodIO(UInt(0.W), outputType)).suggestName(name)
     io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.ret) }
@@ -66,17 +67,18 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
 
 case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, inputType: I, outputType: O, impl: (I,O) => Unit, parent: MethodParent) extends Method {
   def apply(in: I): O = {
-    require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedMoudles")
+    require(!parent.isElaborated, "TODO: implement method calls for elaborated UntimedModules")
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
-    val call = IO(new IOMethodCallBundle(inputType, outputType)).suggestName(name + "_call_" + ii)
+    val call = IO(new MethodCallIO(inputType, outputType)).suggestName(name + "_call_" + ii)
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.arg.toTarget), parent.toTarget, name, ii, true) })
     annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
     call.arg := in
+    call.enabled := true.B
     call.ret
   }
   override private[paso] def generate(): Unit = {
-    val io = IO(new MethodIOBundle(inputType, outputType)).suggestName(name)
+    val io = IO(new MethodIO(inputType, outputType)).suggestName(name)
     io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.arg, io.ret) }
@@ -84,26 +86,21 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
 }
 
 
-class OMethodCallBundle[O <: Data](outputType: O) extends Bundle {
-  val ret = Input(outputType)
+class MethodCallIO[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
+  val arg = Output(inputType)  // inputs to the method, only valid if enabled is true
+  val ret = Input(outputType)  // outputs of the method, only valid if enabled is true
+  val enabled = Output(Bool()) // will be true if the method is called
   override def cloneType: this.type = {
-    new OMethodCallBundle(outputType).asInstanceOf[this.type]
+    new MethodCallIO(inputType, outputType).asInstanceOf[this.type]
   }
 }
-class IOMethodCallBundle[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
-  val arg = Output(inputType)
-  val ret = Input(outputType)
-  override def cloneType: this.type = {
-    new IOMethodCallBundle(inputType, outputType).asInstanceOf[this.type]
-  }
-}
-class MethodIOBundle[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
-  val enabled = Input(Bool())
-  val guard = Output(Bool())
+class MethodIO[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
+  val enabled = Input(Bool()) // may only be asserted if guard is true
+  val guard = Output(Bool())  // indicated whether the method can be executed
   val arg = Input(inputType)
   val ret = Output(outputType)
   override def cloneType: this.type = {
-    new MethodIOBundle(inputType, outputType).asInstanceOf[this.type]
+    new MethodIO(inputType, outputType).asInstanceOf[this.type]
   }
 }
 
