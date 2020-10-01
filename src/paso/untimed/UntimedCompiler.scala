@@ -4,9 +4,8 @@
 
 package paso.untimed
 
-import firrtl.CircuitState
+import firrtl.{AnnotationSeq, CircuitState, ir}
 import firrtl.Utils.getUIntWidth
-import firrtl.ir
 import firrtl.analyses.InstanceKeyGraph
 import firrtl.analyses.InstanceKeyGraph.InstanceKey
 import firrtl.ir.IntWidth
@@ -22,7 +21,8 @@ object UntimedCompiler {
 
 }
 
-case class MethodInfo(name: String, reads: List[String], writes: List[String])
+case class MethodInfo(name: String, ioName: String, reads: List[String], writes: List[String], calls: List[CallInfo])
+case class CallInfo(parent: String, method: String, ioName: String)
 case class UntimedModuleInto(name: String, state: List[String], methods: List[String])
 
 
@@ -37,7 +37,8 @@ object CollectCalls {
   def run(state: CircuitState, abstracted: Set[String]): CircuitState = {
     assert(abstracted.isEmpty, "TODO: allow submodules to be abstracted!")
     val newMain = run(state.circuit.main, state, abstracted)
-    state.copy(circuit = state.circuit.copy(modules = List(newMain)))
+    val annos = state.annotations.filterNot(a => a.isInstanceOf[MethodIOAnnotation] || a.isInstanceOf[MethodCallAnnotation])
+    state.copy(circuit = state.circuit.copy(modules = List(newMain)), annotations = annos)
   }
 
   private def run(name: String, state: CircuitState, abstracted: Set[String]): ir.Module = {
@@ -51,7 +52,7 @@ object CollectCalls {
     val localState = findState(mod)
 
     // analyze methods
-    val methods = analyzeMethods(mod.body, calls)
+    val methods = analyzeMethods(mod, calls, state.annotations)
 
 
 
@@ -112,7 +113,7 @@ object CollectCalls {
     state.toSeq
   }
 
-  def analyzeMethods(body: ir.Statement, calls: Iterable[MethodCallAnnotation]): Seq[MethodInfo] = {
+  def analyzeMethods(mod: ir.Module, calls: Iterable[MethodCallAnnotation], annos: AnnotationSeq): Seq[MethodInfo] = {
     // method are of the following general pattern:
     // ```
     // method.guard <= UInt<1>("h1")
@@ -121,8 +122,31 @@ object CollectCalls {
     //   ; method body
     // ```
     // we know all the method names, so we can just search for a Conditionally that checks the `method_name.enabled` signal
+    val ioToName = annos.collect{ case a: MethodIOAnnotation if a.target.module == mod.name => a.target.ref -> a.name }.toMap
 
-    Seq()
+    val methods = mutable.ArrayBuffer[MethodInfo]()
+
+    def onStmt(s: ir.Statement): Unit = s match {
+      case c : ir.Conditionally => c.pred match {
+        case ir.SubField(ir.Reference(ioName, _, _, _), "enabled", _, _) if ioToName.contains(ioName) =>
+          assert(c.alt == ir.EmptyStmt)
+          methods.append(analyzeMethod(ioToName(ioName), ioName, c.conseq, calls))
+        case _ => // methods should not be enclosed in other when blocks!
+      }
+      case other => other.foreachStmt(onStmt)
+    }
+    mod.foreachStmt(onStmt)
+
+    methods.toSeq
+  }
+
+  /**
+   * Finds signals read and connected to that are defined outside of the method as well as any calls inside the method.
+   */
+  def analyzeMethod(name: String, ioName: String, body: ir.Statement, calls: Iterable[MethodCallAnnotation]): MethodInfo = {
+    println("TODO")
+
+    MethodInfo(name, ioName, List(), List(), List())
   }
 
 
