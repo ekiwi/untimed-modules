@@ -7,13 +7,14 @@ package paso.untimed
 
 import chisel3._
 import chisel3.experimental.{ChiselAnnotation, IO, annotate}
-import firrtl.annotations.{Annotation, ModuleTarget, MultiTargetAnnotation, ReferenceTarget, SingleTargetAnnotation, Target}
+import firrtl.annotations.{Annotation, InstanceTarget, IsModule, ModuleTarget, MultiTargetAnnotation, ReferenceTarget, Target}
 
 import scala.collection.mutable
 
 private[paso] trait MethodParent {
   private[paso] def addMethod(m: Method): Unit
   private[paso] def toTarget: ModuleTarget
+  private[paso] def toAbsoluteTarget: IsModule
   private[paso] def isElaborated: Boolean
 }
 
@@ -53,7 +54,7 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
     val call = IO(new MethodCallIO(UInt(0.W), outputType)).suggestName(name + "_call_" + ii)
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.toTarget, parent.toAbsoluteTarget, name) })
     call.enabled := true.B
     call.ret
   }
@@ -71,8 +72,7 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
     val call = IO(new MethodCallIO(inputType, outputType)).suggestName(name + "_call_" + ii)
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.arg.toTarget), parent.toTarget, name, ii, true) })
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(List(call.ret.toTarget), parent.toTarget, name, ii, false) })
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.toTarget, parent.toAbsoluteTarget, name) })
     call.arg := in
     call.enabled := true.B
     call.ret
@@ -115,12 +115,13 @@ object MethodCall {
   }
 }
 
-case class MethodCallAnnotation(signals: Seq[ReferenceTarget], parent: ModuleTarget, name: String, ii: Int, isArg: Boolean) extends MultiTargetAnnotation {
-  override val targets = List(signals, List(parent))
+case class MethodCallAnnotation(callIO: ReferenceTarget, calleeParent: IsModule, calleeName: String) extends MultiTargetAnnotation {
+  override val targets = List(List(callIO), List(calleeParent))
 
-  override def duplicate(n: Seq[Seq[Target]]) = {
+  override def duplicate(n: Seq[Seq[Target]]): MethodCallAnnotation = {
     assert(n.length == 2, "Need signal + parent")
-    assert(n(1).length == 1, "Method parent should always stay a single ModuleTarget!")
-    copy(signals = n.head.map(_.asInstanceOf[ReferenceTarget]), parent = n(1).head.asInstanceOf[ModuleTarget])
+    assert(n(1).length == 1, "Method parent should always stay a single InstanceTarget!")
+    assert(n.head.length == 1, "Call signal should not be split up. Make sure to remove this annotation before running LowerTypes!")
+    copy(callIO = n.head.head.asInstanceOf[ReferenceTarget], calleeParent = n(1).head.asInstanceOf[IsModule])
   }
 }
