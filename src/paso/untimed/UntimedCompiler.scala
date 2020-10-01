@@ -163,11 +163,11 @@ object CollectCalls {
       case ir.DefNode(_, name, _) => locals.add(name)
       case ir.DefWire(_, name, _) => locals.add(name)
       case r : ir.DefRegister =>
-        throw new UntimedError(s"Cannot create a register ${r.name} inside of method ${name}!")
+        throw new UntimedError(s"Cannot create a register ${r.name} in method $name of $parent!")
       case m : ir.DefMemory =>
-        throw new UntimedError(s"Cannot create a memory ${m.name} inside of method ${name}!")
+        throw new UntimedError(s"Cannot create a memory ${m.name} in method $name of $parent!")
       case i : ir.DefInstance =>
-        throw new UntimedError(s"Cannot create an instance ${i.name} of ${i.module} inside of method ${name}!")
+        throw new UntimedError(s"Cannot create an instance ${i.name} of ${i.module} in method $name of $parent!")
       case ir.Connect(_, loc, _) =>
         loc match {
           case ir.SubField(ir.Reference(maybeCall, _, _, _), "enabled", _, _) if calls.contains(maybeCall) =>
@@ -186,4 +186,4 @@ object CollectCalls {
 
 }
 
-private class UntimedError(s: String) extends PassException(s)
+class UntimedError(s: String) extends PassException(s)

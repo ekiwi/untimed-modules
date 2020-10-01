@@ -7,6 +7,7 @@ package untimed
 import chisel3._
 import org.scalatest._
 import paso.UntimedModule
+import paso.untimed.UntimedError
 
 
 class UntimedInc extends UntimedModule {
@@ -30,6 +31,14 @@ class Counter4BitWithSubModule extends UntimedModule {
     val newValue = ii.inc(value)
     value := newValue
     out := newValue
+  }
+}
+
+class RegInMethodModule extends UntimedModule {
+  val thisIsOK = RegInit(0.U(3.W))
+
+  val foo = fun("foo") {
+    val thisIsNot = RegInit(0.U(3.W))
   }
 }
 
@@ -70,5 +79,13 @@ class UntimedModuleSpec extends FlatSpec {
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
     assert(inc.name == "inc")
+  }
+
+  "declaring a register inside a method" should "lead to an exception" in {
+    val err = intercept[UntimedError] {
+      val m = UntimedModule(new RegInMethodModule)
+    }
+    assert(err.getMessage.contains("create a register"))
+    assert(err.getMessage.contains("in method foo of RegInMethodModule"))
   }
 }
