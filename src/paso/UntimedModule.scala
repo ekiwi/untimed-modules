@@ -43,7 +43,7 @@ object UntimedModule {
         em.methods.foreach(_.generate())
         em
       }
-      annotate(new ChiselAnnotation { override def toFirrtl = SubmoduleAnnotation(sub.toTarget, sub) })
+      // annotate(new ChiselAnnotation { override def toFirrtl = SubmoduleAnnotation(sub.toTarget, sub) })
       sub
     } else { // but it can also be used to elaborate the toplevel
       elaborate(m)
@@ -73,6 +73,8 @@ object UntimedModule {
   }
 }
 
+/*
 case class SubmoduleAnnotation(target: ModuleTarget, untimed: UntimedModule) extends SingleTargetAnnotation[ModuleTarget] {
   def duplicate(n: ModuleTarget) = this.copy(n)
 }
+*/

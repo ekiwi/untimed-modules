@@ -7,7 +7,7 @@ package paso.untimed
 
 import chisel3._
 import chisel3.experimental.{ChiselAnnotation, IO, annotate}
-import firrtl.annotations.{Annotation, InstanceTarget, IsModule, ModuleTarget, MultiTargetAnnotation, ReferenceTarget, Target}
+import firrtl.annotations.{Annotation, InstanceTarget, IsModule, ModuleTarget, MultiTargetAnnotation, ReferenceTarget, SingleTargetAnnotation, Target}
 
 import scala.collection.mutable
 
@@ -31,6 +31,7 @@ case class NMethod(name: String, guard: () => Bool, impl: () => Unit, parent: Me
   }
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(UInt(0.W), UInt(0.W))).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
     io.guard := guard()
     when(io.enabled) { impl() }
   }
@@ -43,6 +44,7 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
   }
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(inputType, UInt(0.W))).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
     io.guard := guard()
     when(io.enabled) { impl(io.arg) }
   }
@@ -60,6 +62,7 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
   }
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(UInt(0.W), outputType)).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
     io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.ret) }
@@ -79,6 +82,7 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
   }
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(inputType, outputType)).suggestName(name)
+    annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
     io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.arg, io.ret) }
@@ -113,6 +117,10 @@ object MethodCall {
     callSiteCount(name) = next
     next
   }
+}
+
+case class MethodIOAnnotation(target: ReferenceTarget, name: String) extends SingleTargetAnnotation[ReferenceTarget] {
+  override def duplicate(n: ReferenceTarget): MethodIOAnnotation = copy(target = n)
 }
 
 case class MethodCallAnnotation(callIO: ReferenceTarget, calleeParent: IsModule, calleeName: String) extends MultiTargetAnnotation {
