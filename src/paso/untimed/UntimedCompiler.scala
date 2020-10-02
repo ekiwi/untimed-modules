@@ -24,7 +24,9 @@ object UntimedCompiler {
 
 case class MethodInfo(name: String, parent: String, ioName: String, writes: Set[String], calls: Seq[CallInfo])
 case class CallInfo(parent: String, method: String, ioName: String)
-case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Seq[MethodInfo], submodule: Seq[UntimedModuleInfo])
+case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Seq[MethodInfo], submodules: Seq[UntimedModuleInfo]) {
+  val hasState: Boolean = state.isEmpty && submodules.forall(!_.hasState)
+}
 
 
 
@@ -37,12 +39,12 @@ object CollectCalls {
 
   def run(state: CircuitState, abstracted: Set[String]): CircuitState = {
     assert(abstracted.isEmpty, "TODO: allow submodules to be abstracted!")
-    val (newMain, mainInfo) = run(state.circuit.main, state, abstracted)
+    val (newModules, mainInfo) = run(state.circuit.main, state, abstracted)
     val annos = state.annotations.filterNot(a => a.isInstanceOf[MethodIOAnnotation] || a.isInstanceOf[MethodCallAnnotation])
-    state.copy(circuit = state.circuit.copy(modules = List(newMain)), annotations = annos)
+    state.copy(circuit = state.circuit.copy(modules = newModules), annotations = annos)
   }
 
-  private def run(name: String, state: CircuitState, abstracted: Set[String]): (ir.Module, UntimedModuleInfo) = {
+  private def run(name: String, state: CircuitState, abstracted: Set[String]): (Seq[ir.Module], UntimedModuleInfo) = {
     val mod = state.circuit.modules.collectFirst{ case m: ir.Module if m.name == name => m }.get
     val calls = state.annotations.collect { case  a: MethodCallAnnotation if a.callIO.module == mod.name => a}
 
@@ -56,6 +58,10 @@ object CollectCalls {
     val methods = analyzeMethods(mod, calls, state.annotations)
 
     val info = UntimedModuleInfo(name, localState, methods, submods.map(_._2))
+
+    // verify that all method calls are correct
+    val nameToModule = info.submodules.map(s => s.name -> s).toMap
+    //val
 
 
     // TODO: create instances and connect to calls
@@ -71,7 +77,9 @@ object CollectCalls {
     }
 
     val body = ir.Block(defaults :+ mod.body)
-    (mod.copy(body=body), info)
+    val newMod = mod.copy(body=body)
+
+    (submods.flatMap(_._1) :+ newMod, info)
   }
 
   def removeInstances(m: ir.Module): (ir.Module, Seq[InstanceKey]) = {

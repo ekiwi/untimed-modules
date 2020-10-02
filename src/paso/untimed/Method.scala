@@ -75,7 +75,7 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
     val ii = MethodCall.getCallCount(name)
     // create port to emulate the function call
     val call = IO(new MethodCallIO(inputType, outputType)).suggestName(name + "_call_" + ii)
-    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.toTarget, parent.toAbsoluteTarget, name) })
+    annotate(new ChiselAnnotation { override def toFirrtl: Annotation = MethodCallAnnotation(call.toTarget, parent.toTarget, name) })
     call.arg := in
     call.enabled := true.B
     call.ret
