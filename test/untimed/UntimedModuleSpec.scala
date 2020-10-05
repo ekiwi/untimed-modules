@@ -96,6 +96,9 @@ class UntimedModuleSpec extends FlatSpec {
     assert(inc.name == "inc")
   }
 
+}
+
+class UntimedModuleExceptionSpec extends FlatSpec {
   "declaring a register inside a method" should "lead to an exception" in {
     val err = intercept[UntimedError] {
       val m = UntimedModule(new RegInMethodModule)
