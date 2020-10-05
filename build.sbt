@@ -1,7 +1,7 @@
 val basicSettings = Seq(
   name := "untimed-modules",
   organization := "edu.berkeley.cs",
-  scalaVersion := "2.12.10",
+  scalaVersion := "2.12.12",
   scalaSource in Compile := baseDirectory.value / "src",
   scalaSource in Test := baseDirectory.value / "test",
   resourceDirectory in Test := baseDirectory.value / "test" / "resources",
