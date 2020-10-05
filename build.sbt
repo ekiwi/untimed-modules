@@ -18,6 +18,7 @@ val chiselSettings = Seq(
 )
 
 val otherDependencySettings = Seq(
+  libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.0" % "test",
   libraryDependencies += "edu.berkeley.cs" %% "chiseltest" % "0.3.0-RC3" % "test",
 )
 

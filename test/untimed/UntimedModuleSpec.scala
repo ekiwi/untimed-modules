@@ -5,7 +5,7 @@
 package untimed
 
 import chisel3._
-import org.scalatest._
+import org.scalatest.flatspec.AnyFlatSpec
 import paso.UntimedModule
 import paso.untimed.UntimedError
 
@@ -57,7 +57,7 @@ class RegInMethodModule extends UntimedModule {
   }
 }
 
-class UntimedModuleSpec extends FlatSpec {
+class UntimedModuleSpec extends AnyFlatSpec {
   "a simple UntimedModule" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new UntimedInc)
     assert(m.isElaborated)
@@ -98,7 +98,7 @@ class UntimedModuleSpec extends FlatSpec {
 
 }
 
-class UntimedModuleExceptionSpec extends FlatSpec {
+class UntimedModuleExceptionSpec extends AnyFlatSpec {
   "declaring a register inside a method" should "lead to an exception" in {
     val err = intercept[UntimedError] {
       val m = UntimedModule(new RegInMethodModule)
