@@ -25,7 +25,7 @@ object UntimedCompiler {
 case class MethodInfo(name: String, parent: String, ioName: String, writes: Set[String], calls: Seq[CallInfo])
 case class CallInfo(parent: String, method: String, ioName: String)
 case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Seq[MethodInfo], submodules: Seq[UntimedModuleInfo]) {
-  val hasState: Boolean = state.isEmpty && submodules.forall(!_.hasState)
+  val hasState: Boolean = state.nonEmpty || submodules.map(_.hasState).reduce((a,b) => a || b)
 }
 
 
@@ -61,7 +61,21 @@ object CollectCalls {
 
     // verify that all method calls are correct
     val nameToModule = info.submodules.map(s => s.name -> s).toMap
-    //val
+    methods.foreach { m =>
+      val callsByParent = m.calls.groupBy(_.parent)
+      callsByParent.foreach { case (parent, calls) =>
+        assert(nameToModule.contains(parent), s"$parent is not a submodule of $name!")
+        val parentMod = nameToModule(parent)
+        if(parentMod.hasState) {
+          // if the submodule is stateful, we can only call one method
+          if(calls.size > 1) {
+            val cs = "Detected calls: " + calls.map(_.method).mkString(", ")
+            throw new UntimedError(s"[$name.${m.name}] cannot call more than one method of stateful submodule $parent.\n$cs")
+          }
+        } // if the submodule is not stateful, we can call as many methods as we want to!
+      }
+    }
+
 
 
     // TODO: create instances and connect to calls

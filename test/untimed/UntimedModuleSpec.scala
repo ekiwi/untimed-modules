@@ -11,6 +11,9 @@ import paso.untimed.UntimedError
 
 
 class UntimedInc extends UntimedModule {
+  // a dummy state which will trip our call determinism check (you are not allowed to call more than one method
+  // of a stateful module at a single time)
+  val dummyState = RegInit(0.U(4.W))
   val inc = fun("inc").in(UInt(32.W)).out(UInt(32.W)) {
     (in, out) => out := in + 1.U
   }
@@ -34,10 +37,22 @@ class Counter4BitWithSubModule extends UntimedModule {
   }
 }
 
+class Counter4BitWithSubModuleAndTwoCalls extends UntimedModule {
+  val value = RegInit(0.U(4.W))
+  val ii = UntimedModule(new UntimedInc)
+  val inc = fun("inc").out(UInt(4.W)) { out =>
+    // calling a method of a stateful submodule twice is forbidden (even if the method itself is pure)
+    value := ii.inc(value)
+    out := ii.inc(value)
+  }
+}
+
+
 class RegInMethodModule extends UntimedModule {
   val thisIsOK = RegInit(0.U(3.W))
 
   val foo = fun("foo") {
+    // registers may not be declared inside of methods!
     val thisIsNot = RegInit(0.U(3.W))
   }
 }
@@ -87,5 +102,12 @@ class UntimedModuleSpec extends FlatSpec {
     }
     assert(err.getMessage.contains("create a register"))
     assert(err.getMessage.contains("in method foo of RegInMethodModule"))
+  }
+
+  "calling a method of a stateful submodule more than once" should "lead to an exception" in {
+    val err = intercept[UntimedError] {
+      val m = UntimedModule(new Counter4BitWithSubModuleAndTwoCalls)
+    }
+    assert(err.getMessage.contains("[Counter4BitWithSubModuleAndTwoCalls.inc] cannot call more than one method of stateful submodule UntimedInc"))
   }
 }
