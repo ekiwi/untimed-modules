@@ -80,7 +80,9 @@ object CollectCalls {
     }.toMap
 
     // statements to declare instances and connect their reset and clock and inputs
-    val instanceStatements = finalInstances.flatMap{ case (module, is) => is.flatMap(i => makeInstance(i, module)) }
+    val instanceStatements = finalInstances.flatMap{ case (module, is) =>
+      is.flatMap(i => makeInstance(i, module, nameToModule(module).methods.map(_.name)))
+    }
 
     // connect calls to instances
     val connectCalls = methods.flatMap { meth =>
@@ -103,17 +105,8 @@ object CollectCalls {
 
     // TODO: create instances and connect to calls
 
-    // provide default connections to call IO
-    val defaults: Seq[ir.Statement] = calls.flatMap { c =>
-      val info = mod.ports.find(_.name == c.callIO.ref).get.info
-      // by default a call is not enabled
-      val en = ir.Connect(info, ir.SubField(ir.Reference(c.callIO.ref), "enabled"), ir.UIntLiteral(0, IntWidth(1)))
-      // by default the arguments to the call are undefined
-      val arg = ir.IsInvalid(info, ir.SubField(ir.Reference(c.callIO.ref), "arg"))
-      List(en, arg)
-    }
 
-    val body = ir.Block(defaults :+ mod.body)
+    val body = ir.Block((instanceStatements ++ connectCallStmts ++ List(mod.body)).toSeq)
     val newMod = mod.copy(body=body)
 
     (submods.flatMap(_._1) :+ newMod, info)
@@ -128,15 +121,18 @@ object CollectCalls {
   )
 
 
-  def makeInstance(name: String, module: String, info: ir.Info = ir.NoInfo): List[ir.Statement] = List(
+  def makeInstance(name: String, module: String, methods: Iterable[String], info: ir.Info = ir.NoInfo): List[ir.Statement] = List(
     ir.DefInstance(info, name, module),
     ir.Connect(info, ir.SubField(ir.Reference(name), "reset"), ir.Reference("reset")),
-    ir.Connect(info, ir.SubField(ir.Reference(name), "clock"), ir.Reference("clock")),
-    // by default a method is disabled (this is important in case it is never called!)
-    ir.Connect(info, ir.SubField(ir.Reference(name), "enabled"), ir.UIntLiteral(0, IntWidth(1))),
-    // by default a method input is don't care
-    ir.IsInvalid(info, ir.SubField(ir.Reference(name), "arg")),
-  )
+    ir.Connect(info, ir.SubField(ir.Reference(name), "clock"), ir.Reference("clock"))
+  ) ++ methods.flatMap { method =>
+    List(
+      // by default a method is disabled (this is important in case it is never called!)
+      ir.Connect(info, ir.SubField(ir.SubField(ir.Reference(name), method), "enabled"), ir.UIntLiteral(0, IntWidth(1))),
+      // by default a method input is don't care
+      ir.IsInvalid(info, ir.SubField(ir.SubField(ir.Reference(name), method), "arg")),
+    )
+  }
 
   def verifyMethodCalls(name: String, methods: Iterable[MethodInfo], nameToModule: Map[String, UntimedModuleInfo]): Unit = {
     methods.foreach { m =>
