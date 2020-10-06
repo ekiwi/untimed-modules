@@ -8,6 +8,7 @@ import firrtl.{AnnotationSeq, CircuitState, PrimOps, ir}
 import firrtl.analyses.InstanceKeyGraph.InstanceKey
 import firrtl.ir.IntWidth
 import firrtl.passes.PassException
+import paso.FirrtlCompiler
 
 import scala.collection.mutable
 
@@ -20,7 +21,8 @@ case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Se
 
 object UntimedCompiler {
   def run(state: CircuitState, abstracted: Set[String]): CircuitState = {
-    ConnectCalls.run(state, abstracted)
+    val fixedCalls = ConnectCalls.run(state, abstracted)
+    FirrtlCompiler.toLowFirrtl(fixedCalls)
   }
 }
 
