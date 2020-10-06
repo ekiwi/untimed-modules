@@ -24,12 +24,10 @@ object UntimedCompiler {
 }
 
 case class MethodInfo(name: String, parent: String, ioName: String, writes: Set[String], calls: Seq[CallInfo])
-case class CallInfo(parent: String, method: String, ioName: String)
+case class CallInfo(parent: String, method: String, ioName: String, info: ir.Info)
 case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Seq[MethodInfo], submodules: Seq[UntimedModuleInfo]) {
   val hasState: Boolean = state.nonEmpty || (submodules.count(_.hasState) > 0)
 }
-
-
 
 
 /** Runs on the high firrtl representation of the untimed module circuit.
@@ -94,8 +92,7 @@ object CollectCalls {
         callCount(fullName) += 1
         val instance = finalInstances(call.parent)(count)
         // connect to instance
-        val info = mod2.ports.find(_.name == call.ioName).get.info
-        val stmts = connectCallToInstanceAndDefaults(call, instance, info)
+        val stmts = connectCallToInstanceAndDefaults(call, instance, call.info)
         ((instance -> call), stmts)
       }
     }
@@ -105,15 +102,15 @@ object CollectCalls {
     // connect the enabled and arg input of submodule methods
     // this requires an OR for enabled and a MUX for the arg
     val connectMethodInputs = instanceToCall.flatMap { case (instance, cc) =>
-      val info = ir.NoInfo // TODO: get better info
       assert(cc.nonEmpty)
       cc.map(_._2).groupBy(_.method).flatMap { case (method, calls) =>
         val enabled = calls.map(c => ir.SubField(ir.Reference(c.ioName), "enabled"))
           .reduce[ir.Expression]((a,b) => ir.DoPrim(PrimOps.Or, Seq(a,b), Seq(), ir.UnknownType))
+        val info = ir.MultiInfo(calls.map(_.info).toSeq)
         val conEnabled = ir.Connect(info, ir.SubField(ir.SubField(ir.Reference(instance), method), "enabled"), enabled)
         val args = calls.map { c =>
-          val con = ir.Connect(info, ir.SubField(ir.SubField(ir.Reference(instance), method), "arg"), ir.SubField(ir.Reference(c.ioName), "arg"))
-          ir.Conditionally(info, ir.SubField(ir.Reference(c.ioName), "enabled"), con, ir.EmptyStmt)
+          val con = ir.Connect(c.info, ir.SubField(ir.SubField(ir.Reference(instance), method), "arg"), ir.SubField(ir.Reference(c.ioName), "arg"))
+          ir.Conditionally(c.info, ir.SubField(ir.Reference(c.ioName), "enabled"), con, ir.EmptyStmt)
         }
         args :+ conEnabled
       }
@@ -208,7 +205,7 @@ object CollectCalls {
   }
 
   def analyzeMethods(mod: ir.Module, calls: Iterable[MethodCallAnnotation], annos: AnnotationSeq): (Seq[MethodInfo], ir.Module) = {
-    val callIO = calls.map(c => c.callIO.ref -> CallInfo(c.calleeParent.module, c.calleeName, c.callIO.ref)).toMap
+    val callIO = calls.map { c => c.callIO.ref -> CallInfo(c.calleeParent.module, c.calleeName, c.callIO.ref, ir.NoInfo) }.toMap
 
     // method are of the following general pattern:
     // ```
@@ -257,7 +254,7 @@ object CollectCalls {
   def analyzeMethod(name: String, parent: String, ioName: String, body: ir.Statement, calls: Map[String, CallInfo]): MethodInfo = {
     val locals = mutable.HashSet[String]()
     val writes = mutable.HashSet[String]()
-    val localCalls = mutable.HashSet[String]()
+    val localCalls = mutable.HashMap[String, ir.Info]()
 
     def onWrite(loc: ir.Expression): Unit = {
       val signal = loc.serialize.split('.').head
@@ -275,10 +272,14 @@ object CollectCalls {
         throw new UntimedError(s"Cannot create a memory ${m.name} in method $name of $parent!")
       case i : ir.DefInstance =>
         throw new UntimedError(s"Cannot create an instance ${i.name} of ${i.module} in method $name of $parent!")
-      case ir.Connect(_, loc, _) =>
-        loc match {
-          case ir.SubField(ir.Reference(maybeCall, _, _, _), "enabled", _, _) if calls.contains(maybeCall) =>
-            localCalls.add(maybeCall)
+      case ir.Connect(info, loc, expr) =>
+        (loc, expr) match {
+          case (ir.SubField(ir.Reference(maybeCall, _, _, _), "enabled", _, _), _) if calls.contains(maybeCall) =>
+            // only use info from enabled if we haven't found better info so far
+            if(!localCalls.contains(maybeCall)) { localCalls(maybeCall) = info }
+          case (_, ir.SubField(ir.Reference(maybeCall, _, _, _), "ret", _, _)) if calls.contains(maybeCall) =>
+            // ret has better info than enabled!
+            localCalls(maybeCall) = info
           case _ => onWrite(loc)
         }
       case ir.IsInvalid(_, loc) => onWrite(loc)
@@ -286,7 +287,10 @@ object CollectCalls {
     }
     onStmt(body)
 
-    MethodInfo(name, parent, ioName, writes.toSet, localCalls.toSeq.map(calls))
+    // update the ir.Info for all calls:
+    val callInfos = localCalls.map { case (c, i) => calls(c).copy(info=i) }
+
+    MethodInfo(name, parent, ioName, writes.toSet, callInfos.toSeq)
   }
 
 
