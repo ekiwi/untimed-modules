@@ -15,6 +15,7 @@ val chiselSettings = Seq(
   // for structural bundles
   scalacOptions := Seq("-deprecation", "-unchecked", "-Xsource:2.11"),
   libraryDependencies += "edu.berkeley.cs" %% "chisel3" % "3.4.0-RC3",
+  libraryDependencies += "edu.berkeley.cs" %% "treadle" % "1.3.0-RC3",
 )
 
 val otherDependencySettings = Seq(

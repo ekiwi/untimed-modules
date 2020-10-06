@@ -8,7 +8,9 @@ import firrtl.{AnnotationSeq, CircuitState, PrimOps, ir}
 import firrtl.analyses.InstanceKeyGraph.InstanceKey
 import firrtl.ir.IntWidth
 import firrtl.passes.PassException
+import firrtl.stage.FirrtlCircuitAnnotation
 import paso.FirrtlCompiler
+import treadle.TreadleTester
 
 import scala.collection.mutable
 
@@ -24,6 +26,13 @@ object UntimedCompiler {
     val fixedCalls = ConnectCalls.run(state, abstracted)
     FirrtlCompiler.toLowFirrtl(fixedCalls)
   }
+  def toTreadleTester(chirrtl: CircuitState): TreadleTester = {
+    val low = run(chirrtl, Set())
+    val lowCircuit = FirrtlCircuitAnnotation(low.circuit)
+    val treadleAst = prepareAst.transform(Seq(lowCircuit))
+    new TreadleTester(treadleAst)
+  }
+  private val prepareAst = new treadle.stage.phases.PrepareAst()
 }
 
 /** Runs on the high firrtl representation of the untimed module circuit.

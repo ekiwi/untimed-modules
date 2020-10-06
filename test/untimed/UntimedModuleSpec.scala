@@ -88,7 +88,13 @@ class UntimedModuleSpec extends AnyFlatSpec {
     val src = f.circuit.serialize
     assert(!src.contains("when "))
 
-    println(src)
+    // we should be able to get an interactive treadle tester
+    val t = m.getTester
+    t.poke("inc_enabled", 1)
+    t.poke("inc_arg", 32)
+    assert(t.peek("inc_guard") == 1)
+    assert(t.peek("inc_ret") == 33)
+    t.step()
   }
 
   "an UntimedModule with state" should "be elaborated with UntimedModule(new ...)" in {

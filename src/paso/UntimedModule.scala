@@ -17,10 +17,15 @@ class UntimedModule extends MultiIOModule with MethodParent {
   private val _methods = mutable.ArrayBuffer[Method]()
   private var _chirrtl: Option[firrtl.CircuitState] = None
   private lazy val _lowfir = UntimedCompiler.run(_chirrtl.get, Set())
+  private lazy val _tester = UntimedCompiler.toTreadleTester(_chirrtl.get)
   private val methodNames = mutable.HashSet[String]()
   def getFirrtl: firrtl.CircuitState = {
     assert(_isElaborated, "You need to elaborate the module using UntimedModule(new ...)!")
     _lowfir
+  }
+  def getTester: treadle.TreadleTester = {
+    assert(_isElaborated, "You need to elaborate the module using UntimedModule(new ...)!")
+    _tester
   }
   def methods: Seq[Method] = _methods
   // TODO: automagically infer names like Chisel does for its native constructs
