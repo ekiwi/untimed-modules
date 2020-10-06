@@ -6,8 +6,6 @@
 package paso
 
 import chisel3._
-import chisel3.experimental.{ChiselAnnotation, annotate}
-import firrtl.annotations.{ModuleTarget, SingleTargetAnnotation}
 import paso.untimed._
 
 import scala.collection.mutable
@@ -43,7 +41,6 @@ object UntimedModule {
         em.methods.foreach(_.generate())
         em
       }
-      // annotate(new ChiselAnnotation { override def toFirrtl = SubmoduleAnnotation(sub.toTarget, sub) })
       sub
     } else { // but it can also be used to elaborate the toplevel
       elaborate(m)
@@ -70,9 +67,3 @@ object UntimedModule {
     mod
   }
 }
-
-/*
-case class SubmoduleAnnotation(target: ModuleTarget, untimed: UntimedModule) extends SingleTargetAnnotation[ModuleTarget] {
-  def duplicate(n: ModuleTarget) = this.copy(n)
-}
-*/
