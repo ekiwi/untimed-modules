@@ -4,10 +4,11 @@
 
 package paso.untimed
 
-import firrtl.{AnnotationSeq, CircuitState, Namespace, ir}
+import firrtl.{AnnotationSeq, CircuitState, Namespace, PrimOps, ir}
 import firrtl.Utils.getUIntWidth
 import firrtl.analyses.InstanceKeyGraph
 import firrtl.analyses.InstanceKeyGraph.InstanceKey
+import firrtl.backends.experimental.smt.Op
 import firrtl.ir.IntWidth
 import firrtl.passes.PassException
 import paso.{ChiselCompiler, FirrtlCompiler, UntimedModule}
@@ -49,12 +50,12 @@ object CollectCalls {
     val calls = state.annotations.collect { case  a: MethodCallAnnotation if a.callIO.module == mod.name => a}
 
     // analyze submodules first
-    val instances = InstanceKeyGraph.collectInstances(mod)
+    val (instances, mod1) = removeInstances(mod)
     val submods = instances.map(s => run(s.module, state, abstracted))
 
     // collect metadata: state (regs + mems) + analyze methods
-    val localState = findState(mod)
-    val methods = analyzeMethods(mod, calls, state.annotations)
+    val localState = findState(mod1)
+    val (methods, mod2) = analyzeMethods(mod1, calls, state.annotations)
     val info = UntimedModuleInfo(name, localState, methods, submods.map(_._2))
 
     // verify that all method calls are correct
@@ -62,7 +63,7 @@ object CollectCalls {
     verifyMethodCalls(name, methods, nameToModule)
 
     // calculate the number of instances for each submodule
-    val namespace = firrtl.Namespace(mod)
+    val namespace = firrtl.Namespace(mod) // important: make a namespace of the original module in order to include the original instance name
     val finalInstances = info.submodules.flatMap { s =>
       val instanceName = instances.find(_.module == s.name).map(_.name).get
       // stateful modules only ever have a single instance since we need one "true" copy of the state
@@ -93,21 +94,38 @@ object CollectCalls {
         callCount(fullName) += 1
         val instance = finalInstances(call.parent)(count)
         // connect to instance
-        val info = mod.ports.find(_.name == call.ioName).get.info
+        val info = mod2.ports.find(_.name == call.ioName).get.info
         val stmts = connectCallToInstanceAndDefaults(call, instance, info)
-        ((call.ioName -> instance), stmts)
+        ((instance -> call), stmts)
       }
     }
-    val callToInstance = connectCalls.map(_._1)
+    val instanceToCall = connectCalls.map(_._1).groupBy(_._1)
     val connectCallStmts = connectCalls.flatMap(_._2)
 
+    // connect the enabled and arg input of submodule methods
+    // this requires an OR for enabled and a MUX for the arg
+    val connectMethodInputs = instanceToCall.flatMap { case (instance, cc) =>
+      val info = ir.NoInfo // TODO: get better info
+      assert(cc.nonEmpty)
+      cc.map(_._2).groupBy(_.method).flatMap { case (method, calls) =>
+        val enabled = calls.map(c => ir.SubField(ir.Reference(c.ioName), "enabled"))
+          .reduce[ir.Expression]((a,b) => ir.DoPrim(PrimOps.Or, Seq(a,b), Seq(), ir.UnknownType))
+        val conEnabled = ir.Connect(info, ir.SubField(ir.SubField(ir.Reference(instance), method), "enabled"), enabled)
+        val args = calls.map { c =>
+          val con = ir.Connect(info, ir.SubField(ir.SubField(ir.Reference(instance), method), "arg"), ir.SubField(ir.Reference(c.ioName), "arg"))
+          ir.Conditionally(info, ir.SubField(ir.Reference(c.ioName), "enabled"), con, ir.EmptyStmt)
+        }
+        args :+ conEnabled
+      }
+    }
 
 
-    // TODO: create instances and connect to calls
+    // demote call io to wires
+    val (callPorts, nonCallPorts) = mod2.ports.partition(p => calls.exists(_.callIO.ref == p.name))
+    val callIOWires = callPorts.map(p => ir.DefWire(p.info, p.name, p.tpe))
 
-
-    val body = ir.Block((instanceStatements ++ connectCallStmts ++ List(mod.body)).toSeq)
-    val newMod = mod.copy(body=body)
+    val body = ir.Block((callIOWires ++ instanceStatements ++ connectCallStmts ++ connectMethodInputs ++ List(mod2.body)).toSeq)
+    val newMod = mod2.copy(body=body, ports = nonCallPorts)
 
     (submods.flatMap(_._1) :+ newMod, info)
   }
@@ -116,8 +134,9 @@ object CollectCalls {
     // by default the call is disabled and the arg is DontCare
     ir.Connect(info, ir.SubField(ir.Reference(call.ioName), "enabled"), ir.UIntLiteral(0, IntWidth(1))),
     ir.IsInvalid(info, ir.SubField(ir.Reference(call.ioName), "arg")),
-    // connect method ret to call io
+    // connect method ret and guard to call io
     ir.Connect(info, ir.SubField(ir.Reference(call.ioName), "ret"), ir.SubField(ir.SubField(ir.Reference(instanceName), call.method), "ret")),
+    ir.Connect(info, ir.SubField(ir.Reference(call.ioName), "guard"), ir.SubField(ir.SubField(ir.Reference(instanceName), call.method), "guard")),
   )
 
 
@@ -151,7 +170,7 @@ object CollectCalls {
     }
   }
 
-  def removeInstances(m: ir.Module): (ir.Module, Seq[InstanceKey]) = {
+  def removeInstances(m: ir.Module): (Seq[InstanceKey], ir.Module) = {
     val instances = mutable.ArrayBuffer[InstanceKey]()
 
     def onStmt(s: ir.Statement): ir.Statement = s match {
@@ -169,7 +188,7 @@ object CollectCalls {
     }
 
     val newM = m.copy(body=onStmt(m.body))
-    (newM, instances.toSeq)
+    (instances.toSeq, newM)
   }
 
 
@@ -188,7 +207,7 @@ object CollectCalls {
     state.toSeq
   }
 
-  def analyzeMethods(mod: ir.Module, calls: Iterable[MethodCallAnnotation], annos: AnnotationSeq): Seq[MethodInfo] = {
+  def analyzeMethods(mod: ir.Module, calls: Iterable[MethodCallAnnotation], annos: AnnotationSeq): (Seq[MethodInfo], ir.Module) = {
     val callIO = calls.map(c => c.callIO.ref -> CallInfo(c.calleeParent.module, c.calleeName, c.callIO.ref)).toMap
 
     // method are of the following general pattern:
@@ -203,20 +222,31 @@ object CollectCalls {
 
     val methods = mutable.ArrayBuffer[MethodInfo]()
 
-    def onStmt(s: ir.Statement): Unit = s match {
+    def onStmt(s: ir.Statement): ir.Statement = s match {
       case c : ir.Conditionally => c.pred match {
         case ir.SubField(ir.Reference(ioName, _, _, _), "enabled", _, _) if ioToName.contains(ioName) =>
           assert(c.alt == ir.EmptyStmt)
           methods.append(analyzeMethod(ioToName(ioName), mod.name, ioName, c.conseq, callIO))
         case _ => // methods should not be enclosed in other when blocks!
       }
+      c
+      case c : ir.Connect => c.loc match {
+        // we need to include any guards of sub methods!
+        case ir.SubField(ir.Reference(ioName, _, _, _), "guard", _, _) if ioToName.contains(ioName) =>
+          val method = methods.last
+          assert(method.ioName == ioName, "Expected guard assignment to immediately follow method body!")
+          val subGuards = method.calls.map(c => ir.SubField(ir.Reference(c.ioName), "guard"))
+          val fullGuard = (subGuards :+ c.expr).reduce((a,b) => ir.DoPrim(PrimOps.And, Seq(a,b), Seq(), ir.UnknownType))
+          c.copy(expr = fullGuard)
+        case _ => c
+      }
       // TODO: check for state updates outside of methods
       //       we can either completely disallow them or treat them as some sort of init block
-      case other => other.foreachStmt(onStmt)
+      case other => other.mapStmt(onStmt)
     }
-    mod.foreachStmt(onStmt)
+    val newMod = mod.mapStmt(onStmt).asInstanceOf[ir.Module]
 
-    methods.toSeq
+    (methods.toSeq, newMod)
   }
 
   /**

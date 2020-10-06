@@ -32,8 +32,8 @@ case class NMethod(name: String, guard: () => Bool, impl: () => Unit, parent: Me
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(UInt(0.W), UInt(0.W))).suggestName(name)
     annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
-    io.guard := guard()
     when(io.enabled) { impl() }
+    io.guard := guard()
   }
 }
 
@@ -45,8 +45,8 @@ case class IMethod[I <: Data](name: String, guard: () => Bool, inputType: I, imp
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(inputType, UInt(0.W))).suggestName(name)
     annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
-    io.guard := guard()
     when(io.enabled) { impl(io.arg) }
+    io.guard := guard()
   }
 }
 
@@ -63,9 +63,9 @@ case class OMethod[O <: Data](name: String, guard: () => Bool, outputType: O, im
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(UInt(0.W), outputType)).suggestName(name)
     annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
-    io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.ret) }
+    io.guard := guard()
   }
 }
 
@@ -83,17 +83,18 @@ case class IOMethod[I <: Data, O <: Data](name: String, guard: () => Bool, input
   override private[paso] def generate(): Unit = {
     val io = IO(new MethodIO(inputType, outputType)).suggestName(name)
     annotate(new ChiselAnnotation { override def toFirrtl = MethodIOAnnotation(io.toTarget, name) })
-    io.guard := guard()
     io.ret := DontCare
     when(io.enabled) { impl(io.arg, io.ret) }
+    io.guard := guard()
   }
 }
 
-
+// TODO: MethodCallIO is essentially just a flipped MethodIO
 class MethodCallIO[I <: Data, O <: Data](inputType: I, outputType: O) extends Bundle {
   val arg = Output(inputType)  // inputs to the method, only valid if enabled is true
   val ret = Input(outputType)  // outputs of the method, only valid if enabled is true
   val enabled = Output(Bool()) // will be true if the method is called
+  val guard = Input(Bool())
   override def cloneType: this.type = {
     new MethodCallIO(inputType, outputType).asInstanceOf[this.type]
   }
