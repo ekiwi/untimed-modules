@@ -60,10 +60,8 @@ object UntimedModule {
     val (fir, mod) = ChiselCompiler.elaborate(gen)
 
     //println(fir.circuit.serialize)
-    val fixedCalls = CollectCalls.run(fir, Set())
-
+    val fixedCalls = UntimedCompiler.run(fir, Set())
     println(fixedCalls.circuit.serialize)
-
     val lowFir = FirrtlCompiler.toLowFirrtl(fixedCalls)
 
     mod._isElaborated = true

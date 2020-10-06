@@ -4,24 +4,13 @@
 
 package paso.untimed
 
-import firrtl.{AnnotationSeq, CircuitState, Namespace, PrimOps, ir}
-import firrtl.Utils.getUIntWidth
-import firrtl.analyses.InstanceKeyGraph
+import firrtl.{AnnotationSeq, CircuitState, PrimOps, ir}
 import firrtl.analyses.InstanceKeyGraph.InstanceKey
-import firrtl.backends.experimental.smt.Op
 import firrtl.ir.IntWidth
 import firrtl.passes.PassException
-import paso.{ChiselCompiler, FirrtlCompiler, UntimedModule}
 
 import scala.collection.mutable
 
-
-
-
-
-object UntimedCompiler {
-
-}
 
 case class MethodInfo(name: String, parent: String, ioName: String, writes: Set[String], calls: Seq[CallInfo])
 case class CallInfo(parent: String, method: String, ioName: String, info: ir.Info)
@@ -29,12 +18,17 @@ case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Se
   val hasState: Boolean = state.nonEmpty || (submodules.count(_.hasState) > 0)
 }
 
+object UntimedCompiler {
+  def run(state: CircuitState, abstracted: Set[String]): CircuitState = {
+    ConnectCalls.run(state, abstracted)
+  }
+}
 
 /** Runs on the high firrtl representation of the untimed module circuit.
  *  Collects all calls to submodules, integrates them into guards, initializes method call wires
  *  properly and creates the call graph.
  * */
-object CollectCalls {
+object ConnectCalls {
 
   def run(state: CircuitState, abstracted: Set[String]): CircuitState = {
     assert(abstracted.isEmpty, "TODO: allow submodules to be abstracted!")
