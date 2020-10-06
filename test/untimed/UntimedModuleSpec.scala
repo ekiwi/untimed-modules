@@ -72,6 +72,20 @@ class RegInMethodModule extends UntimedModule {
   }
 }
 
+// recursion is always forbidden
+class RecursionModule extends UntimedModule {
+  val foo: paso.untimed.OMethod[UInt] = fun("foo").out(UInt(32.W)) { o =>
+    o := foo()
+  }
+}
+
+// we currently do not support method calling other methods in the same module,
+// this feature would be possible to support, just needs a some engineering work
+class InternalMethodCallModule extends UntimedModule {
+  val bar = fun("bar").out(UInt(32.W)) { o => o := 1234.U }
+  val foo = fun("foo").out(UInt(32.W)) { o => o := bar() }
+}
+
 class UntimedModuleSpec extends AnyFlatSpec {
   "a simple UntimedModule" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new UntimedInc)
@@ -132,7 +146,7 @@ class UntimedModuleSpec extends AnyFlatSpec {
 class UntimedModuleExceptionSpec extends AnyFlatSpec {
   "declaring a register inside a method" should "lead to an exception" in {
     val err = intercept[UntimedError] {
-      val m = UntimedModule(new RegInMethodModule)
+      UntimedModule(new RegInMethodModule).getFirrtl
     }
     assert(err.getMessage.contains("create a register"))
     assert(err.getMessage.contains("in method foo of RegInMethodModule"))
@@ -140,8 +154,22 @@ class UntimedModuleExceptionSpec extends AnyFlatSpec {
 
   "calling a method of a stateful submodule more than once" should "lead to an exception" in {
     val err = intercept[UntimedError] {
-      val m = UntimedModule(new Counter4BitWithSubModuleAndTwoCalls)
+      UntimedModule(new Counter4BitWithSubModuleAndTwoCalls).getFirrtl
     }
     assert(err.getMessage.contains("[Counter4BitWithSubModuleAndTwoCalls.inc] cannot call more than one method of stateful submodule UntimedInc"))
+  }
+
+  "recursive method calls" should "lead to an exception" in {
+    val err = intercept[UntimedError] {
+      UntimedModule(new RecursionModule).getFirrtl
+    }
+    assert(err.getMessage.contains("recursive calls are not allowed"))
+  }
+
+  "calls to methods in the same module" should "lead to an exception" in {
+    val err = intercept[UntimedError] {
+      UntimedModule(new InternalMethodCallModule).getFirrtl
+    }
+    assert(err.getMessage.contains("currently, only calls to submodules are supported"))
   }
 }

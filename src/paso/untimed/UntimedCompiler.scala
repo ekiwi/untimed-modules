@@ -159,6 +159,14 @@ object ConnectCalls {
     methods.foreach { m =>
       val callsByParent = m.calls.groupBy(_.parent)
       callsByParent.foreach { case (parent, calls) =>
+        if(parent == name) {
+          if(calls.map(_.method).contains(m.name)) {
+            throw new UntimedError(s"[$name.${m.name}] recursive calls are not allowed!")
+          } else {
+            val cs = "Detected calls: " + calls.map(_.method).mkString(", ")
+            throw new UntimedError(s"[$name.${m.name}] currently, only calls to submodules are supported!\n$cs")
+          }
+        }
         assert(nameToModule.contains(parent), s"$parent is not a submodule of $name!")
         val parentMod = nameToModule(parent)
         if(parentMod.hasState) {
