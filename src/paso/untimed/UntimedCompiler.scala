@@ -25,7 +25,7 @@ object UntimedCompiler {
 case class MethodInfo(name: String, parent: String, ioName: String, writes: Set[String], calls: Seq[CallInfo])
 case class CallInfo(parent: String, method: String, ioName: String)
 case class UntimedModuleInfo(name: String, state: Seq[ir.Reference], methods: Seq[MethodInfo], submodules: Seq[UntimedModuleInfo]) {
-  val hasState: Boolean = state.nonEmpty || submodules.map(_.hasState).reduce((a,b) => a || b)
+  val hasState: Boolean = state.nonEmpty || (submodules.count(_.hasState) > 0)
 }
 
 
@@ -49,32 +49,55 @@ object CollectCalls {
     val calls = state.annotations.collect { case  a: MethodCallAnnotation if a.callIO.module == mod.name => a}
 
     // analyze submodules first
-    val submods = InstanceKeyGraph.collectInstances(mod).map(s => run(s.module, state, abstracted))
+    val instances = InstanceKeyGraph.collectInstances(mod)
+    val submods = instances.map(s => run(s.module, state, abstracted))
 
-    // collect state
+    // collect metadata: state (regs + mems) + analyze methods
     val localState = findState(mod)
-
-    // analyze methods
     val methods = analyzeMethods(mod, calls, state.annotations)
-
     val info = UntimedModuleInfo(name, localState, methods, submods.map(_._2))
 
     // verify that all method calls are correct
     val nameToModule = info.submodules.map(s => s.name -> s).toMap
-    methods.foreach { m =>
-      val callsByParent = m.calls.groupBy(_.parent)
-      callsByParent.foreach { case (parent, calls) =>
-        assert(nameToModule.contains(parent), s"$parent is not a submodule of $name!")
-        val parentMod = nameToModule(parent)
-        if(parentMod.hasState) {
-          // if the submodule is stateful, we can only call one method
-          if(calls.size > 1) {
-            val cs = "Detected calls: " + calls.map(_.method).mkString(", ")
-            throw new UntimedError(s"[$name.${m.name}] cannot call more than one method of stateful submodule $parent.\n$cs")
-          }
-        } // if the submodule is not stateful, we can call as many methods as we want to!
+    verifyMethodCalls(name, methods, nameToModule)
+
+    // calculate the number of instances for each submodule
+    val namespace = firrtl.Namespace(mod)
+    val finalInstances = info.submodules.flatMap { s =>
+      val instanceName = instances.find(_.module == s.name).map(_.name).get
+      // stateful modules only ever have a single instance since we need one "true" copy of the state
+      if(s.hasState) {
+        Some(s.name -> List(instanceName))
+      } else {
+        // find the max number of calls to any method of this module in a single method
+        val maxCalls = methods.flatMap(m => m.calls.filter(_.parent == s.name).groupBy(_.method).map(_._2.size)).max
+        // if this module is never called
+        if(maxCalls == 0) { None } else {
+          val copies = (0 until (maxCalls - 1)).map(_ => namespace.newName(instanceName))
+          Some(s.name -> (List(instanceName) ++ copies))
+        }
+      }
+    }.toMap
+
+    // statements to declare instances and connect their reset and clock and inputs
+    val instanceStatements = finalInstances.flatMap{ case (module, is) => is.flatMap(i => makeInstance(i, module)) }
+
+    // connect calls to instances
+    val connectCalls = methods.flatMap { meth =>
+      val callCount = mutable.HashMap[String, Int]()
+      meth.calls.map { call =>
+        val fullName = s"${call.parent}.${call.method}"
+        val count = callCount.getOrElseUpdate(fullName, 0)
+        callCount(fullName) += 1
+        val instance = finalInstances(call.parent)(count)
+        // connect to instance
+        val info = mod.ports.find(_.name == call.ioName).get.info
+        val stmts = connectCallToInstanceAndDefaults(call, instance, info)
+        ((call.ioName -> instance), stmts)
       }
     }
+    val callToInstance = connectCalls.map(_._1)
+    val connectCallStmts = connectCalls.flatMap(_._2)
 
 
 
@@ -94,6 +117,42 @@ object CollectCalls {
     val newMod = mod.copy(body=body)
 
     (submods.flatMap(_._1) :+ newMod, info)
+  }
+
+  def connectCallToInstanceAndDefaults(call: CallInfo, instanceName: String, info: ir.Info = ir.NoInfo): List[ir.Statement] = List(
+    // by default the call is disabled and the arg is DontCare
+    ir.Connect(info, ir.SubField(ir.Reference(call.ioName), "enabled"), ir.UIntLiteral(0, IntWidth(1))),
+    ir.IsInvalid(info, ir.SubField(ir.Reference(call.ioName), "arg")),
+    // connect method ret to call io
+    ir.Connect(info, ir.SubField(ir.Reference(call.ioName), "ret"), ir.SubField(ir.SubField(ir.Reference(instanceName), call.method), "ret")),
+  )
+
+
+  def makeInstance(name: String, module: String, info: ir.Info = ir.NoInfo): List[ir.Statement] = List(
+    ir.DefInstance(info, name, module),
+    ir.Connect(info, ir.SubField(ir.Reference(name), "reset"), ir.Reference("reset")),
+    ir.Connect(info, ir.SubField(ir.Reference(name), "clock"), ir.Reference("clock")),
+    // by default a method is disabled (this is important in case it is never called!)
+    ir.Connect(info, ir.SubField(ir.Reference(name), "enabled"), ir.UIntLiteral(0, IntWidth(1))),
+    // by default a method input is don't care
+    ir.IsInvalid(info, ir.SubField(ir.Reference(name), "arg")),
+  )
+
+  def verifyMethodCalls(name: String, methods: Iterable[MethodInfo], nameToModule: Map[String, UntimedModuleInfo]): Unit = {
+    methods.foreach { m =>
+      val callsByParent = m.calls.groupBy(_.parent)
+      callsByParent.foreach { case (parent, calls) =>
+        assert(nameToModule.contains(parent), s"$parent is not a submodule of $name!")
+        val parentMod = nameToModule(parent)
+        if(parentMod.hasState) {
+          // if the submodule is stateful, we can only call one method
+          if(calls.size > 1) {
+            val cs = "Detected calls: " + calls.map(_.method).mkString(", ")
+            throw new UntimedError(s"[$name.${m.name}] cannot call more than one method of stateful submodule $parent.\n$cs")
+          }
+        } // if the submodule is not stateful, we can call as many methods as we want to!
+      }
+    }
   }
 
   def removeInstances(m: ir.Module): (ir.Module, Seq[InstanceKey]) = {

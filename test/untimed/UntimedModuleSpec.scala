@@ -47,6 +47,21 @@ class Counter4BitWithSubModuleAndTwoCalls extends UntimedModule {
   }
 }
 
+class UntimedIncNoState extends UntimedModule {
+  val inc = fun("inc").in(UInt(32.W)).out(UInt(32.W)) {
+    (in, out) => out := in + 1.U
+  }
+}
+
+class Counter4BitWithSubModuleAndTwoCallsNoSubstate extends UntimedModule {
+  val value = RegInit(0.U(4.W))
+  val ii = UntimedModule(new UntimedIncNoState)
+  val inc = fun("inc").out(UInt(4.W)) { out =>
+    // because we use a submodule with no substate, calling it twice is fine!
+    value := ii.inc(value)
+    out := ii.inc(value)
+  }
+}
 
 class RegInMethodModule extends UntimedModule {
   val thisIsOK = RegInit(0.U(3.W))
@@ -90,6 +105,16 @@ class UntimedModuleSpec extends AnyFlatSpec {
     val m = UntimedModule(new Counter4BitWithSubModule)
     assert(m.isElaborated)
     assert(m.name == "Counter4BitWithSubModule")
+    assert(m.methods.size == 1)
+    assert(m.value.getWidth == 4)
+    val inc = m.methods.head
+    assert(inc.name == "inc")
+  }
+
+  "an UntimedModule with a state-less sub module" should "be elaborated with UntimedModule(new ...)" in {
+    val m = UntimedModule(new Counter4BitWithSubModuleAndTwoCallsNoSubstate)
+    assert(m.isElaborated)
+    assert(m.name == "Counter4BitWithSubModuleAndTwoCallsNoSubstate")
     assert(m.methods.size == 1)
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
