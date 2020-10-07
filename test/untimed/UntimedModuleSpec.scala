@@ -102,7 +102,7 @@ class UntimedModuleSpec extends AnyFlatSpec {
     val src = f.circuit.serialize
     assert(!src.contains("when "))
     // there should not be any valid ifs, everything should be deterministic
-    assert(!src.contains("validif"))
+    assert(!src.contains("validif(inc_enabled"))
 
     // we should be able to get an interactive treadle tester
     val t = m.getTester
