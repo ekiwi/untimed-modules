@@ -127,6 +127,10 @@ class UntimedModuleSpec extends AnyFlatSpec {
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
     assert(inc.name == "inc")
+
+    // the state update should be guarded
+    val src = m.getFirrtl.circuit.serialize
+    assert(src.contains("mux(inc_enabled"))
   }
 
   "an UntimedModule with a sub module" should "be elaborated with UntimedModule(new ...)" in {
