@@ -101,6 +101,8 @@ class UntimedModuleSpec extends AnyFlatSpec {
     // as a crude check to see if the circuit is actually in LowForm, make sure there are no whens
     val src = f.circuit.serialize
     assert(!src.contains("when "))
+    // there should not be any valid ifs, everything should be deterministic
+    assert(!src.contains("validif"))
 
     // we should be able to get an interactive treadle tester
     val t = m.getTester
@@ -108,6 +110,12 @@ class UntimedModuleSpec extends AnyFlatSpec {
     t.poke("inc_arg", 32)
     assert(t.peek("inc_guard") == 1)
     assert(t.peek("inc_ret") == 33)
+    t.step()
+
+    // the enabled signal should only inhibit updating state, the method should still work, even if enabled is false
+    t.poke("inc_enabled", 0)
+    t.poke("inc_arg", 64)
+    assert(t.peek("inc_ret") == 65)
     t.step()
   }
 
