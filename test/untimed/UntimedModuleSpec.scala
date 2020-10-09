@@ -5,6 +5,8 @@
 package untimed
 
 import chisel3._
+import firrtl.MemoryScalarInit
+import firrtl.annotations.{CircuitTarget, MemoryInitAnnotation, MemoryScalarInitAnnotation}
 import org.scalatest.flatspec.AnyFlatSpec
 import paso.UntimedModule
 import paso.untimed.UntimedError
@@ -86,6 +88,10 @@ class InternalMethodCallModule extends UntimedModule {
   val foo = fun("foo").out(UInt(32.W)) { o => o := bar() }
 }
 
+class ModuleWithMemory extends UntimedModule {
+  val m = SyncReadMem(12, UInt(5.W))
+}
+
 class UntimedModuleSpec extends AnyFlatSpec {
   "a simple UntimedModule" should "be elaborated with UntimedModule(new ...)" in {
     val m = UntimedModule(new UntimedInc)
@@ -151,6 +157,19 @@ class UntimedModuleSpec extends AnyFlatSpec {
     assert(m.value.getWidth == 4)
     val inc = m.methods.head
     assert(inc.name == "inc")
+  }
+
+  "memory" should "always be initialized to zero" in {
+    val m = UntimedModule(new ModuleWithMemory)
+    assert(m.isElaborated)
+    val fir = m.getFirrtl
+
+    val init = fir.annotations.collect { case a : MemoryInitAnnotation => a }
+    assert(init.length == 1, "Expected exactly one memory init annotation!")
+    val anno = init.head
+    assert(anno.target == CircuitTarget("ModuleWithMemory").module("ModuleWithMemory").ref("m"))
+    assert(anno.isInstanceOf[MemoryScalarInitAnnotation])
+    assert(anno.asInstanceOf[MemoryScalarInitAnnotation].value == 0)
   }
 
 }
